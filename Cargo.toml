@@ -1,0 +1,19 @@
+[package]
+name = "geomatch"
+version = "0.1.0"
+authors = ["Devin Vander Stelt <devin@vstelt.dev>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv="1.1"
+futures="0.3"
+tokio= { version = "1", features = ["full", "time"] }
+reqwest= { version="0.11", features= ["json"] }
+serde="1"
+serde_json="1"
+clap="2.33"
+regex="1"
+indicatif="0.16"
+threadpool="1.8"
