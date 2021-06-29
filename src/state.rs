@@ -1,6 +1,7 @@
 use std::error::Error;
 use csv::WriterBuilder;
 use indicatif::ProgressBar;
+use fuzzywuzzy::fuzz::token_sort_ratio;
 use super::data_frame::DataFrame;
 
 const R: f64 = 3958.8; // Radius of Earth (miles)
@@ -407,9 +408,35 @@ impl State {
         // If we have multiple exact matches we have to guess with compare
         // columns which one suits it best
         if exact.len() > 1 {
-            // TODO: Figure this out, probably a token srot ratio or
-            // something of the like
-            return Some((exact[0], 0.));
+            let src_compare = df1.compare_row(record_index);
+
+            // The basic idea here is to find the row that has the minimum squared 
+            // distance from the compare row
+            let mut min: Option<(usize, usize)> = None;
+            for test_index in exact {
+                let test_compare = df2.compare_row(test_index);
+                let mut dist = 0;
+
+                // For each column find the closest compare column
+                for test_col in test_compare.iter() {
+                    let mut min_col_dist = None;
+                    for src_col in src_compare.iter() {
+                        let col_dist = 100-token_sort_ratio(&src_col, &test_col, true, true) as usize;
+                        if min_col_dist.is_none() || min_col_dist.unwrap() > col_dist {
+                            min_col_dist = Some(col_dist);
+                        }
+                    }
+                    if min_col_dist.is_some() {
+                        dist += min_col_dist.unwrap().pow(2);
+                    }
+                }
+
+                if min.is_none() || min.unwrap().1 > dist {
+                    min = Some((test_index, dist));
+                }
+            }
+
+            return Some((min.unwrap().0, 0.0))
         }
 
         if let Some((min_index, min_lat, min_lng, mut dist)) = min {

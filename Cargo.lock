@@ -292,12 +292,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzzywuzzy"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c075dcf102b63d18ebeb6ee0e8680ca8ab06da01e73e45ff187f15ef18d50350"
+
+[[package]]
 name = "geomatch"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "clap",
  "csv",
  "futures",
+ "fuzzywuzzy",
  "indicatif",
  "regex",
  "reqwest",

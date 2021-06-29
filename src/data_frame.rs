@@ -557,6 +557,15 @@ impl DataFrame {
         output_row
     }
 
+    pub fn compare_row(&self, row: usize) -> Vec<String> {
+        let mut compare_row = Vec::new();
+        for col in self.compare_cols.iter() {
+            compare_row.push(self.data[*col][row].clone());
+        }
+
+        compare_row
+    }
+
     pub fn remove_row(&mut self, row: usize) {
         if let Some(lat) = &mut self.lat {
             lat.remove(row);

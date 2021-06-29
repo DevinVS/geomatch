@@ -38,7 +38,7 @@ Once the application is running you will be presented with a cli interface with 
 - `prefix [index] [val]`
   + Set a prefix for all columns from file at a specific index
 - `method [method]`
-  + Set matching either to `left` for a left join or `inner` for an inner join. Outer join hopefully coming soon.
+  + Set matching either to `left` for a left join, `inner` for an inner join, or `outer` for an outer join
 - `fetch`
   + Fetch all the coordinate pairs for all files and write to new csv files
 - `match`
@@ -76,6 +76,8 @@ Set your match method using the `method` command. There are currently 2 methods:
   + All entries from the leftmost file are written along with any matches from other files
 - inner
   + Only matches are written
+- outer
+  + Include all unique entries
 
 You can set output columns, or the columns that will be written along with the matches, using the add command:
 ```
