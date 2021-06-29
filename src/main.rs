@@ -24,6 +24,7 @@ async fn main() -> Result<(),()> {
     print_splash();
     print_prompt();
 
+    // Keep processing commands until user quits
     let mut input_buffer = String::with_capacity(20);
     while let Ok(_) = stdin().read_line(&mut input_buffer) {
         let input: Vec<&str> = input_buffer.trim().split_whitespace().to_owned().collect();

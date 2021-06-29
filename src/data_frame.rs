@@ -13,7 +13,7 @@ use std::fmt::{Formatter, Display};
 use std::time::Duration;
 
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DataFrame {
     path: String,
     headers: Vec<String>,
@@ -37,7 +37,7 @@ pub struct DataFrame {
     lng: Option<Vec<f64>>,
 
     // Additional Output columns
-    output_cols: Vec<usize>,
+    pub output_cols: Vec<usize>,
     compare_cols: Vec<usize>
 }
 
@@ -231,11 +231,29 @@ impl DataFrame {
         data_frame
     }
 
-    fn get_col_index(&self, col: &str) -> usize {
-        self.headers.iter()
+    pub fn with_capacity(width: usize, height: usize) -> DataFrame {
+        let mut data = Vec::with_capacity(width);
+        for _ in 0..width {
+            data.push(Vec::with_capacity(height));
+        }
+        DataFrame {
+            data,
+            lat: Some(Vec::with_capacity(height)),
+            lng: Some(Vec::with_capacity(height)),
+            ..DataFrame::default()
+        }
+    }
+
+    fn get_col_index(&self, col: &str) -> Result<usize, Box<dyn Error>> {
+        let col_option = self.headers.iter()
             .enumerate()
-            .find(|e| e.1.eq(col))
-            .unwrap().0
+            .find(|e| e.1.eq(col));
+
+        if let Some((index, _)) = col_option {
+            Ok(index)
+        } else {
+            return Err(format!("No column named {}", col))?;
+        }
     }
 
     // BOOLEAN CHECKS
@@ -254,6 +272,10 @@ impl DataFrame {
     // GETTERS
     pub fn get_headers(&self) -> &Vec<String> {
         &self.headers
+    }
+
+    pub fn set_headers(&mut self, headers: Vec<String>) {
+        self.headers = headers;
     }
 
     // Special Columns
@@ -292,18 +314,38 @@ impl DataFrame {
         Some(self.lat.as_ref().unwrap())
     }
 
+    pub fn lat_mut(&mut self) -> Option<&mut Vec<f64>> {
+        if self.lat.is_none() {return None;}
+        Some(self.lat.as_mut().unwrap())
+    }
+
     pub fn lng(&self) -> Option<&Vec<f64>> {
         if self.lng.is_none() {return None;}
         Some(self.lng.as_ref().unwrap())
     }
 
-    // SETTERS
-    pub fn add_output_column(&mut self, col: &str) {
-        self.output_cols.push(self.get_col_index(col));
+    pub fn lng_mut(&mut self) ->Option<&mut Vec<f64>> {
+        if self.lng.is_none() {return None;}
+        Some(self.lng.as_mut().unwrap())
     }
 
-    pub fn add_compare_column(&mut self, col: &str) {
-        self.compare_cols.push(self.get_col_index(col));
+    pub fn data(&self) -> &Vec<Vec<String>> {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut Vec<Vec<String>> {
+        &mut self.data
+    }
+
+    // SETTERS
+    pub fn add_output_column(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.output_cols.push(self.get_col_index(col)?);
+        Ok(())
+    }
+
+    pub fn add_compare_column(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.compare_cols.push(self.get_col_index(col)?);
+        Ok(())
     }
 
     pub fn set_prefix(&mut self, prefix: &str) {
@@ -311,44 +353,54 @@ impl DataFrame {
     }
 
     // Special columns
-    pub fn set_id(&mut self, col: &str) {
-        self.id = Some(self.get_col_index(col));
+    pub fn set_id(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.id = Some(self.get_col_index(col)?);
+        Ok(())
     }
 
-    pub fn set_addr1(&mut self, col: &str) {
-        self.addr1 = Some(self.get_col_index(col));
+    pub fn set_addr1(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.addr1 = Some(self.get_col_index(col)?);
+        Ok(())
     }
 
-    pub fn set_addr2(&mut self, col: &str) {
-        self.addr2 = Some(self.get_col_index(col));
+    pub fn set_addr2(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.addr2 = Some(self.get_col_index(col)?);
+        Ok(())
     }
 
-    pub fn set_city(&mut self, col: &str) {
-        self.city = Some(self.get_col_index(col));
+    pub fn set_city(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.city = Some(self.get_col_index(col)?);
+        Ok(())
     }
 
-    pub fn set_state(&mut self, col: &str) {
-        self.state = Some(self.get_col_index(col));
+    pub fn set_state(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.state = Some(self.get_col_index(col)?);
+        Ok(())
     }
 
-    pub fn set_zipcode(&mut self, col: &str) {
-        self.zipcode = Some(self.get_col_index(col));
+    pub fn set_zipcode(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        self.zipcode = Some(self.get_col_index(col)?);
+        Ok(())
     }
 
-    pub fn set_lat(&mut self, col: &str) {
-        let index = self.get_col_index(col);
+    pub fn set_lat(&mut self, col: &str)  -> Result<(), Box<dyn Error>> {
+        let index = self.get_col_index(col)?;
 
         let mut column = self.data.remove(index);
         self.lat = Some(column.iter_mut().map(|e| e.parse::<f64>().unwrap()).collect());
         self.headers.remove(index);
+
+        Ok(())
     }
 
-    pub fn set_lng(&mut self, col: &str) {
-        let index = self.get_col_index(col);
+    pub fn set_lng(&mut self, col: &str) -> Result<(), Box<dyn Error>> {
+        let index = self.get_col_index(col)?;
 
         let mut column = self.data.remove(index);
         self.lng = Some(column.iter_mut().map(|e| e.parse::<f64>().unwrap()).collect());
         self.headers.remove(index);
+
+        Ok(())
     }
 
     pub async fn fetch(&mut self, key: String) -> Result<(), Box<dyn Error>> {
@@ -503,6 +555,22 @@ impl DataFrame {
         }
 
         output_row
+    }
+
+    pub fn remove_row(&mut self, row: usize) {
+        if let Some(lat) = &mut self.lat {
+            lat.remove(row);
+        }
+
+        if let Some(lng) = &mut self.lng {
+            lng.remove(row);
+        }
+
+        for col in self.data.iter_mut() {
+            col.remove(row);
+        }
+
+        self.shape.1 -= 1;
     }
 }
 

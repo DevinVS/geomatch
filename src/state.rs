@@ -1,7 +1,6 @@
 use std::error::Error;
-use csv::{StringRecord, WriterBuilder};
+use csv::WriterBuilder;
 use indicatif::ProgressBar;
-
 use super::data_frame::DataFrame;
 
 const R: f64 = 3958.8; // Radius of Earth (miles)
@@ -9,8 +8,8 @@ const R: f64 = 3958.8; // Radius of Earth (miles)
 #[derive(PartialEq)]
 enum MatchMode {
     LEFT,   // match onto leftmost file, thus only entries in the left file appear
-    INNER   // only print entries that match, from any file
-    // eventually outer when I feel like it
+    INNER,  // only print entries that match, from any file
+    OUTER,  // Print all unique entries
 }
 
 // Config object holds configs for each file, where each index acts as that
@@ -82,6 +81,9 @@ impl State {
             "inner" => {
                 self.match_mode = MatchMode::INNER;
             }
+            "outer" => {
+                self.match_mode = MatchMode::OUTER;
+            }
             _ => {
                 return Err("Invalid match mode")?;
             }
@@ -115,9 +117,9 @@ impl State {
         }
 
         if col_type.eq(&"output") {
-            self.data_frames[file_index].add_output_column(output_col.as_str());
+            self.data_frames[file_index].add_output_column(output_col.as_str())?;
         } else if col_type.eq(&"compare") {
-            self.data_frames[file_index].add_compare_column(output_col.as_str());
+            self.data_frames[file_index].add_compare_column(output_col.as_str())?;
         } else {
             return Err("Invalid type")?;
         }
@@ -188,13 +190,13 @@ impl State {
         let df = &mut self.data_frames[index];
 
         match key.to_lowercase().as_str() {
-            "addr1" => df.set_addr1(val),
-            "addr2" => df.set_addr2(val),
-            "city" => df.set_city(val),
-            "state" => df.set_state(val),
-            "zipcode" => df.set_zipcode(val),
-            "lat" => df.set_lat(val),
-            "lng" => df.set_lng(val),
+            "addr1" => df.set_addr1(val)?,
+            "addr2" => df.set_addr2(val)?,
+            "city" => df.set_city(val)?,
+            "state" => df.set_state(val)?,
+            "zipcode" => df.set_zipcode(val)?,
+            "lat" => df.set_lat(val)?,
+            "lng" => df.set_lng(val)?,
             _ => {}
         }
 
@@ -210,99 +212,217 @@ impl State {
     }
 
     pub fn find_matches(&mut self) -> Result<(), Box<dyn Error>> {
-        let df1 = self.data_frames.get(0).unwrap();
-        let df2 = self.data_frames.get(1).unwrap();
+        let (width, height) = {
+            let mut width = 0;
+            let mut height = 0;
 
-        let bar = ProgressBar::new(df1.shape.1 as u64);
+            for df in self.data_frames.iter() {
+                width += df.output_headers().len();
+                height += df.shape.1;
+            }
+
+            (width, height)
+        };
+
+        // if width is 0 no output columns were supplied
+        if width == 0 {
+            return Err("No output columns supplied")?;
+        }
+
+        let bar = ProgressBar::new(height as u64);
+
+        // create output dataframe, technically overprovisioned for the height
+        let mut output = DataFrame::with_capacity(width, height);
+
+        // Keep track of which columns inside output contain a match
+        let mut match_mask: Vec<bool> = Vec::with_capacity(height);
+        for _ in 0..height {
+            match_mask.push(false);
+        }
+
+        // Set the headers
+        let mut headers = Vec::with_capacity(width);
+        for df in self.data_frames.iter() {
+            for header in df.output_headers() {
+                headers.push(header.clone());
+            }
+        }
+
+        output.set_headers(headers);
+
+        // Make sure every column is an output column
+        for i in 0..width {
+            output.output_cols.push(i);
+        }
+
+        // We start by assuming that each file is internally consistent, meaning
+        // that if a location is duplicated inside it that is by design as they
+        // represent two separate entities.
+        // Now we begin the matching process. For each of the remaining dataframes,
+        // we need to find the nearest match, add it to its respective rows, and then
+        // average the latitude and longitude. If no match is found, we create a new row
+        // for the entry. On the first run no matches will be found so the dataframe will be
+        // essentially copied into the output
+        let mut col_index = 0;
+
+        let mut row_offset = 0;
+
+        for df_index in 0..self.data_frames.len() {
+            // Clone dataframe so we can subtract from it as we match
+            let df = &self.data_frames[df_index];
+            let mut written_mask = Vec::with_capacity(df.shape.1);
+            for _ in 0..df.shape.1 {
+                written_mask.push(false);
+            }
+            let cols = df.output_headers().len();
+
+            // This part is a little bizarre, we are going to iterate throught the existing entries
+            // in the output dataframe. This keeps us from overwriting our matches and allows for a
+            // more uniform process for each dataframe
+            for row in 0..output.data()[0].len() {
+                let result = self.find_single_match(row, &output, &df, &written_mask);
+
+                if let Some((index, _)) = result {
+                    // Add to output
+                    let output_cols = df.output_row(index);
+                    for col in 0..cols {
+                        output.data_mut()[col_index+col][row] = output_cols[col].clone();
+                    }
+
+                    // Average coordinates
+                    let lat = (output.lat().unwrap()[row] + df.lat().unwrap()[index]) * 0.5;
+                    let lng = (output.lng().unwrap()[row] + df.lng().unwrap()[index]) * 0.5;
+
+                    output.lat_mut().unwrap()[row] = lat;
+                    output.lng_mut().unwrap()[row] = lng;
+
+                    // Set mask to not include for writing at the end
+                    written_mask[index] = true;
+
+                    // Set match_mask
+                    match_mask[row_offset+row] = true;
+
+                    bar.inc(1);
+                }
+            }
+
+            // Now that we've fitered out all the matches, we can just append all the rest of the
+            // rows. On a left join we only do this if the dataframe index is 0
+            if self.match_mode!=MatchMode::LEFT || df_index==0 {
+                for row in 0..self.data_frames[df_index].shape.1 {
+                    if !written_mask[row] {
+                        // Fill previous slots with blanks
+                        for col in 0..col_index {
+                            output.data_mut()[col].push("".to_string());
+                        }
+
+                        // Fill in the actual data
+                        let output_cols = df.output_row(row);
+                        for col in 0..cols {
+                            output.data_mut()[col+col_index].push(output_cols[col].clone());
+                        }
+                        output.lat_mut().unwrap().push(df.lat().unwrap()[row]);
+                        output.lng_mut().unwrap().push(df.lng().unwrap()[row]);
+
+                        // Fill rest of slots with blanks
+                        for col in col_index+cols..width {
+                            output.data_mut()[col].push("".to_string());
+                        }
+
+                        bar.inc(1);
+                    }
+                }
+            } else {
+                bar.inc(written_mask.iter().filter(|e| !*e).count() as u64)
+            }
+
+            col_index += cols;
+            row_offset += self.data_frames[df_index].shape.1;
+        }
+
+        bar.finish();
+
+        // At this point we theoretically have a complete dataset, lets write it to the filesystem
+        // and be done
+
         let mut writer = WriterBuilder::new()
             .delimiter('|' as u8)
             .from_path("matches.csv")?;
 
-        // Get new headers
-        let mut headers = df1.output_headers();
-        headers.append(&mut df2.output_headers());
-        headers.push("distance".to_string());
+        writer.write_record(output.output_headers().as_slice())?;
 
-        writer.write_record(headers.as_slice())?;
-        let mut num_matches = 0;
-
-        // For each row in the left dataset, compare to every row in the right dataset
-        // if latitude and longitude are equal it is exact match,
-        // else find the minimum linear distance and then convert to haversine distance
-        for row in 0..df1.shape.1 {
-            let lat = df1.lat().unwrap()[row];
-            let lng = df1.lng().unwrap()[row];
-            let mut min: Option<(usize, f64)> = None;
-
-            if !(lat.is_nan() || lng.is_nan()) {
-
-                for test_row in 0..df2.shape.1 {
-                    let test_lat = df2.lat().unwrap()[test_row];
-                    let test_lng = df2.lng().unwrap()[test_row];
-
-                    if test_lat.is_nan() || test_lng.is_nan() {
-                        continue;
-                    }
-
-                    if lat==test_lat && lng==test_lng {
-                        min = Some((test_row, 0.));
-                        break;
-                    }
-
-                    let dist = linear(lat, lng, test_lat, test_lng);
-                    if min.is_none() || dist < min.unwrap().1 {
-                        min = Some((test_row, dist));
-                    }
-                }
-
-                // Correct distance if necessary
-                if let Some((min_row, dist)) = min {
-                    if dist != 0. {
-                        let min_lat = df2.lat().unwrap()[min_row];
-                        let min_lng = df2.lng().unwrap()[min_row];
-                        min.unwrap().1 = haversine(lat, lng, min_lat, min_lng);
-                    }
-                }
+        // If match_mode is left, we only have items from the leftmost table already so no checks are
+        // required. If inner, we can use our match_mask to make sure only columns with existing matches exist
+        // Outer we just write everything as is
+        for row in 0..output.data()[0].len() {
+            if self.match_mode!=MatchMode::INNER || match_mask[row] {
+                writer.write_record(output.output_row(row).as_slice())?;
             }
-
-            match &self.match_mode {
-                MatchMode::LEFT => {
-
-                }
-                MatchMode::INNER => {}
-            }
-
-            if min.is_some() || self.match_mode==MatchMode::LEFT {
-                // Write record
-                let mut new_record = StringRecord::new();
-
-                for col in df1.output_row(row) {
-                    new_record.push_field(col.as_str());
-                }
-
-                if let Some((min_row, dist)) = min {
-                    num_matches+=1;
-                    for col in df2.output_row(min_row) {
-                        new_record.push_field(col.as_str());
-                    }
-                    new_record.push_field(dist.to_string().as_str());
-                } else {
-                    for _ in df2.output_headers() {
-                        new_record.push_field("");
-                    }
-                    new_record.push_field("");
-                }
-
-                writer.write_record(&new_record)?;
-            }
-
-            bar.inc(1);
         }
 
-        bar.finish();
-        println!("Found {} matches", num_matches);
-
         Ok(())
+    }
+
+    fn find_single_match(&self, record_index: usize, df1: &DataFrame, df2: &DataFrame, written_mask: &Vec<bool>) -> Option<(usize, f64)> {
+        let lat = df1.lat().unwrap()[record_index];
+        let lng = df1.lng().unwrap()[record_index];
+
+        if lat.is_nan() || lng.is_nan() {
+            return None;
+        }
+
+        let mut exact: Vec<usize> = Vec::new();
+        let mut min: Option<(usize, f64, f64, f64)> = None;
+
+        for test_index in 0..df2.shape.1 {
+            if written_mask[test_index] {
+                continue;
+            }
+
+            let test_lat = df2.lat().unwrap()[test_index];
+            let test_lng = df2.lng().unwrap()[test_index];
+
+            if test_lat.is_nan() || test_lng.is_nan() {
+                continue;
+            }
+
+            if lat==test_lat && lng==test_lng {
+                exact.push(test_index);
+                continue;
+            } else if exact.len() != 0 {
+                continue;
+            }
+
+            let dist = linear(lat, lng, test_lat, test_lng);
+            if min.is_none() || dist < min.unwrap().1 {
+                min = Some((test_index, test_lat, test_lng, dist));
+            }
+        }
+
+        // If we have a single exact match just return it
+        if exact.len() == 1 {
+            return Some((exact[0], 0.));
+        }
+
+        // If we have multiple exact matches we have to guess with compare
+        // columns which one suits it best
+        if exact.len() > 1 {
+            // TODO: Figure this out, probably a token srot ratio or
+            // something of the like
+            return Some((exact[0], 0.));
+        }
+
+        if let Some((min_index, min_lat, min_lng, mut dist)) = min {
+            dist = haversine(lat, lng, min_lat, min_lng);
+            if dist > 0.25 {
+                return None;
+            }
+
+            return Some((min_index, dist));
+        }
+
+
+        None
     }
 }
 
