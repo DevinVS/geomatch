@@ -420,7 +420,7 @@ impl State {
             }
 
             let dist = linear(lat, lng, test_lat, test_lng);
-            if min.is_none() || dist < min.unwrap().1 {
+            if min.is_none() || dist < min.unwrap().3 {
                 min = Some((test_index, test_lat, test_lng, dist));
             }
         }
