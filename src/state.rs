@@ -6,7 +6,7 @@ use super::data_frame::DataFrame;
 
 const R: f64 = 3958.8; // Radius of Earth (miles)
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum MatchMode {
     LEFT,   // match onto leftmost file, thus only entries in the left file appear
     INNER,  // only print entries that match, from any file
@@ -19,7 +19,9 @@ pub struct State {
     data_frames: Vec<DataFrame>,
     file_count: usize,
     match_mode: MatchMode,
-    api_key: String
+    api_key: String,
+    radius: f64,
+    exclusive: bool
 }
 
 
@@ -29,7 +31,9 @@ impl State {
             data_frames: Vec::new(),
             file_count: 0,
             match_mode: MatchMode::LEFT,
-            api_key
+            api_key,
+            radius: 0.25,
+            exclusive: true
         }
     }
 
@@ -37,6 +41,8 @@ impl State {
         for (i, df) in self.data_frames.iter().enumerate() {
             println!("{}: {}", i, df);
         }
+        println!("Radius: {}", self.radius);
+        println!("MatchMode: {:?}", self.match_mode);
     }
 
     // Check if the state is ready to fetch
@@ -152,6 +158,17 @@ impl State {
         Ok(())
     }
 
+    // Set matching radius
+    pub fn set_radius<'a>(&mut self, input: Vec<&'a str>) -> Result<(), Box<dyn Error>> {
+        let radius = input.get(1);
+        if radius.is_none() {
+            return Err("radius required")?;
+        }
+        self.radius = radius.unwrap().parse::<f64>()?;
+
+        Ok(())
+    }
+
     pub fn get_columns<'a>(&mut self, input: Vec<&'a str>) -> Result<&Vec<String>, Box<dyn Error>> {
         // Check for file_index
         let file_index = input.get(1);
@@ -221,6 +238,9 @@ impl State {
                 width += df.output_headers().len();
                 height += df.shape.1;
             }
+            if self.match_mode==MatchMode::LEFT {
+                width+=1;
+            }
 
             (width, height)
         };
@@ -247,6 +267,10 @@ impl State {
             for header in df.output_headers() {
                 headers.push(header.clone());
             }
+        }
+
+        if self.match_mode==MatchMode::LEFT {
+            headers.push("distance".to_string());
         }
 
         output.set_headers(headers);
@@ -281,11 +305,15 @@ impl State {
             for row in 0..output.data()[0].len() {
                 let result = self.find_single_match(row, &output, &df, &written_mask);
 
-                if let Some((index, _)) = result {
+                if let Some((index, dist)) = result {
                     // Add to output
                     let output_cols = df.output_row(index);
                     for col in 0..cols {
                         output.data_mut()[col_index+col][row] = output_cols[col].clone();
+                    }
+
+                    if self.match_mode==MatchMode::LEFT {
+                        output.data_mut().last_mut().unwrap()[row] = dist.to_string();
                     }
 
                     // Average coordinates
@@ -309,7 +337,7 @@ impl State {
             // rows. On a left join we only do this if the dataframe index is 0
             if self.match_mode!=MatchMode::LEFT || df_index==0 {
                 for row in 0..self.data_frames[df_index].shape.1 {
-                    if !written_mask[row] {
+                    if !self.exclusive || !written_mask[row] {
                         // Fill previous slots with blanks
                         for col in 0..col_index {
                             output.data_mut()[col].push("".to_string());
@@ -373,7 +401,7 @@ impl State {
         let mut min: Option<(usize, f64, f64, f64)> = None;
 
         for test_index in 0..df2.shape.1 {
-            if written_mask[test_index] {
+            if self.exclusive && written_mask[test_index] {
                 continue;
             }
 
@@ -438,7 +466,7 @@ impl State {
 
         if let Some((min_index, min_lat, min_lng, mut dist)) = min {
             dist = haversine(lat, lng, min_lat, min_lng);
-            if dist > 0.25 {
+            if dist > self.radius {
                 return None;
             }
 

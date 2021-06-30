@@ -79,6 +79,9 @@ async fn main() -> Result<(),()> {
             "method" => {
                 cli_state.set_method(input)
             }
+            "radius" => {
+                cli_state.set_radius(input)
+            },
             "quit" => {
                 break;
             },
