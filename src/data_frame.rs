@@ -413,8 +413,8 @@ impl DataFrame {
         }
 
         // Google's geocoding api will block us if we exceed 50 requests per second
-        let requests_per_second: usize = 500;
-        let dur = Duration::from_secs_f64(1.0/requests_per_second as f64);
+        let requests_per_second: usize = 30;
+        let dur = Duration::from_secs_f64(1.0/(requests_per_second as f64));
         let mut clock = tokio::time::interval(dur);
 
         // Semaphore to make sure we don't max out open http connections
@@ -510,26 +510,14 @@ impl DataFrame {
         let state = self.data[self.state.unwrap()][row].as_str();
         let zipcode = self.data[self.zipcode.unwrap()][row].as_str();
 
-        let parts = if let Some(addr2) = self.addr2 {
-            let addr2 = self.data[addr2][row].as_str();
-            vec![
-                addr1,
-                addr2,
-                city,
-                state,
-                zipcode
-            ]
-        } else {
-            vec![
-                addr1,
-                city,
-                state,
-                zipcode
-            ]
-        };
-
+        let mut parts = vec![addr1, city, state, zipcode];
         if parts.iter().map(|e| e.trim()).any(|e| e.is_empty()) {
             return None;
+        }
+
+        if let Some(addr2) = self.addr2 {
+            let addr2 = self.data[addr2][row].as_str();
+            parts.insert(1, addr2);
         }
 
         Some(parts.join(" "))
@@ -606,6 +594,13 @@ async fn fetch_single(client: &Client, addr: &str, key: &str) -> Result<(f64, f6
 
         Ok((lat, lng))
     } else {
+        println!("{}", json);
+        if let Some(status) = json["status"].as_str() {
+            if status=="OVER_QUERY_LIMIT" {
+                println!("\nMaxed Out API KEY\n");
+                std::process::exit(1);
+            }
+        }
         Ok((f64::NAN, f64::NAN))
     }
 }

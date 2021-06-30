@@ -266,8 +266,6 @@ impl State {
         // essentially copied into the output
         let mut col_index = 0;
 
-        let mut row_offset = 0;
-
         for df_index in 0..self.data_frames.len() {
             // Clone dataframe so we can subtract from it as we match
             let df = &self.data_frames[df_index];
@@ -301,7 +299,7 @@ impl State {
                     written_mask[index] = true;
 
                     // Set match_mask
-                    match_mask[row_offset+row] = true;
+                    match_mask[row] = true;
 
                     bar.inc(1);
                 }
@@ -338,7 +336,6 @@ impl State {
             }
 
             col_index += cols;
-            row_offset += self.data_frames[df_index].shape.1;
         }
 
         bar.finish();
