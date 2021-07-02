@@ -82,6 +82,9 @@ async fn main() -> Result<(),()> {
             "radius" => {
                 cli_state.set_radius(input)
             },
+            "exclusive" => {
+                cli_state.set_exclusive(input)
+            }
             "quit" => {
                 break;
             },

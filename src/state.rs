@@ -43,6 +43,7 @@ impl State {
         }
         println!("Radius: {}", self.radius);
         println!("MatchMode: {:?}", self.match_mode);
+        println!("Exclusive: {}", self.exclusive);
     }
 
     // Check if the state is ready to fetch
@@ -93,6 +94,28 @@ impl State {
             }
             _ => {
                 return Err("Invalid match mode")?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn set_exclusive<'a>(&mut self, input: Vec<&'a str>) -> Result<(), Box<dyn Error>> {
+        let val = input.get(1);
+        if val.is_none() {
+            return Err("val required")?;
+        }
+        let val = val.unwrap();
+
+        match val.to_lowercase().as_str() {
+            "true" => {
+                self.exclusive = true;
+            },
+            "false" => {
+                self.exclusive = false;
+            }
+            _ => {
+                return Err("val must be true or false")?;
             }
         }
 
