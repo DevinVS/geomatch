@@ -43,6 +43,10 @@ Once the application is running you will be presented with a cli interface with 
   + Fetch all the coordinate pairs for all files and write to new csv files
 - `match`
   + Match all the files together and output to `matches.csv`
+- `radius [radius]` 
+  + Set the radius for matching
+- `exclusive [boolean]`
+  + Accepts `true` or `false`, determines whether an entry can be matched more than once
 - `quit`
   + Exit the application
 - `help`
@@ -78,6 +82,17 @@ Set your match method using the `method` command. There are currently 2 methods:
   + Only matches are written
 - outer
   + Include all unique entries
+
+The behavior becomes slightly more complicated when you combine it with a non-exclusive matching process.
+(ie exclusive=false)
+
+- left
+  + Each entry is matched with the absolute best match from the other files, meaning there may be duplicate matches
+- inner
+  + Will include every possible match from every file
+- outer
+  + Will include every possible match from every file along with every entry by itself (since we can't guarantee 1 match
+    per 1 entry)
 
 You can set output columns, or the columns that will be written along with the matches, using the add command:
 ```

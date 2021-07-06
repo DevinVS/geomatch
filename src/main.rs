@@ -139,6 +139,10 @@ fn print_help() {
         method Options:
             left    Include all entries from the first file its matches
             inner   Include all entries that had a positive match
+    radius [radius]     Defaults to 0.25 miles. Max radius for two locations to be considered a match.
+    exclusive [true or false]   Defaults to true. Determines whether an entry can match to more than
+        one entry. Non-Exclusive makes the most sense when combined with a left join, effectively giving
+        the closest match per each location.
     config  Print out the current configuration
     fetch   Fetch all the coordinate pairs and write to new csv file
     match   Match all the files together and write to new csv file
