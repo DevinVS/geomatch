@@ -257,8 +257,13 @@ impl State {
             let mut width = 0;
             let mut height = 0;
 
-            for df in self.data_frames.iter() {
+            for (index, df) in self.data_frames.iter().enumerate() {
                 width += df.output_headers().len();
+
+                if index != 0 {
+                    width += 1; // Distance column
+                }
+
                 height += df.shape.1;
             }
             if self.match_mode==MatchMode::LEFT {
@@ -286,14 +291,13 @@ impl State {
 
         // Set the headers
         let mut headers = Vec::with_capacity(width);
-        for df in self.data_frames.iter() {
+        for (index, df) in self.data_frames.iter().enumerate() {
             for header in df.output_headers() {
                 headers.push(header.clone());
             }
-        }
-
-        if self.match_mode==MatchMode::LEFT {
-            headers.push("distance".to_string());
+            if index != 0 {
+                headers.push(format!("{}_dist", df.prefix,))
+            }
         }
 
         output.set_headers(headers);
@@ -335,8 +339,9 @@ impl State {
                         output.data_mut()[col_index+col][row] = output_cols[col].clone();
                     }
 
-                    if self.match_mode==MatchMode::LEFT {
-                        output.data_mut().last_mut().unwrap()[row] = dist.to_string();
+                    // Add distance to output
+                    if df_index != 0 {
+                        output.data_mut()[col_index+cols][row] = dist.to_string();
                     }
 
                     // Average coordinates
@@ -371,6 +376,12 @@ impl State {
                         for col in 0..cols {
                             output.data_mut()[col+col_index].push(output_cols[col].clone());
                         }
+
+                        // Add distance column
+                        if df_index != 0 {
+                            output.data_mut()[col_index+cols].push(f32::NAN.to_string());
+                        }
+
                         output.lat_mut().unwrap().push(df.lat().unwrap()[row]);
                         output.lng_mut().unwrap().push(df.lng().unwrap()[row]);
 

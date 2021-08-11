@@ -19,7 +19,7 @@ pub struct DataFrame {
     headers: Vec<String>,
     pub shape: (usize, usize),
     delimiter: char,
-    prefix: String,
+    pub prefix: String,
 
     // The DATA
     data: Vec<Vec<String>>,
@@ -115,6 +115,8 @@ impl DataFrame {
 
             (headers, width, height)
         };
+
+        println!("{}x{}", width, height);
 
         // Map headers to special column values
         let mut id = None;
@@ -216,14 +218,17 @@ impl DataFrame {
 
         // Add all data to correct vector
         for record in reader.records() {
+            let mut offset=0;
             let record = record.unwrap();
             for (col, item) in record.iter().enumerate() {
                 if lat.is_some() && col==lat.unwrap() {
                     data_frame.lat.as_mut().unwrap().push(item.parse::<f64>().unwrap_or(f64::NAN));
+                    offset += 1;
                 } else if lng.is_some() && col==lng.unwrap() {
                     data_frame.lng.as_mut().unwrap().push(item.parse::<f64>().unwrap_or(f64::NAN));
+                    offset += 1;
                 } else {
-                    data_frame.data[col].push(item.to_string());
+                    data_frame.data[col-offset].push(item.to_string());
                 }
             }
         }
@@ -260,8 +265,7 @@ impl DataFrame {
     pub fn ready_to_fetch(&self) -> bool {
         self.addr1.is_some() &&
         self.city.is_some() &&
-        self.state.is_some() &&
-        self.zipcode.is_some()
+        self.state.is_some()
     }
 
     pub fn ready_to_match(&self) -> bool {
@@ -508,11 +512,15 @@ impl DataFrame {
         let addr1 = self.data[self.addr1.unwrap()][row].as_str();
         let city = self.data[self.city.unwrap()][row].as_str();
         let state = self.data[self.state.unwrap()][row].as_str();
-        let zipcode = self.data[self.zipcode.unwrap()][row].as_str();
 
-        let mut parts = vec![addr1, city, state, zipcode];
+        let mut parts = vec![addr1, city, state];
         if parts.iter().map(|e| e.trim()).any(|e| e.is_empty()) {
             return None;
+        }
+
+        if let Some(zipcode) = self.zipcode {
+            let zipcode = self.data[zipcode][row].as_str();
+            parts.push(zipcode);
         }
 
         if let Some(addr2) = self.addr2 {
@@ -598,7 +606,6 @@ async fn fetch_single(client: &Client, addr: &str, key: &str) -> Result<(f64, f6
         if let Some(status) = json["status"].as_str() {
             if status=="OVER_QUERY_LIMIT" {
                 println!("\nMaxed Out API KEY\n");
-                std::process::exit(1);
             }
         }
         Ok((f64::NAN, f64::NAN))
