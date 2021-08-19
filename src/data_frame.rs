@@ -1,4 +1,5 @@
 use csv::{ReaderBuilder, StringRecord, WriterBuilder};
+
 use futures::future::join_all;
 use tokio::sync::Semaphore;
 use std::path::Path;
@@ -115,8 +116,6 @@ impl DataFrame {
 
             (headers, width, height)
         };
-
-        println!("{}x{}", width, height);
 
         // Map headers to special column values
         let mut id = None;
@@ -446,7 +445,7 @@ impl DataFrame {
             tasks.push(tokio::spawn(async move {
                 if addr.is_none() {
                     bar_clone.lock().unwrap().inc(1);
-                    return (f64::NAN, f64::NAN);
+                    return (f64::NAN, f64::NAN, "".to_string());
                 }
                 let _permit = sem_clone.acquire().await.unwrap();
                 let res = fetch_single(&client_clone, addr.unwrap().as_str(), key_clone.as_str()).await.unwrap();
@@ -458,13 +457,20 @@ impl DataFrame {
         let results = join_all(tasks).await;
         bar.lock().unwrap().finish();
 
+        // Add lat and lng rows
         self.lat = Some(Vec::with_capacity(self.shape.1));
         self.lng = Some(Vec::with_capacity(self.shape.1));
 
+        // Add row for normalized address
+        self.headers.push("norm_address".to_string());
+        self.data.push(Vec::with_capacity(self.shape.1));
+        let addr_row = self.data.last_mut().unwrap();
+
         for result in results {
-            let (lat, lng) = result.unwrap();
+            let (lat, lng, addr) = result.unwrap();
             self.lat.as_mut().unwrap().push(lat);
             self.lng.as_mut().unwrap().push(lng);
+            addr_row.push(addr);
         }
 
         // Output File
@@ -579,7 +585,7 @@ impl DataFrame {
     }
 }
 
-async fn fetch_single(client: &Client, addr: &str, key: &str) -> Result<(f64, f64), Box<dyn Error>> {
+async fn fetch_single(client: &Client, addr: &str, key: &str) -> Result<(f64, f64, String), Box<dyn Error>> {
     let params = [("address", addr), ("key", key)];
     let res = client.get("https://maps.googleapis.com/maps/api/geocode/json")
         .query(&params)
@@ -595,12 +601,14 @@ async fn fetch_single(client: &Client, addr: &str, key: &str) -> Result<(f64, f6
     let json: Value = serde_json::from_str(text.as_str()).unwrap();
     let lat = json["results"][0]["geometry"]["location"]["lat"].as_f64();
     let lng = json["results"][0]["geometry"]["location"]["lng"].as_f64();
+    let addr = json["results"][0]["formatted_address"].as_str();
 
     if lat.is_some() || lng.is_some() {
         let lat = lat.unwrap();
         let lng = lng.unwrap();
+        let addr = addr.unwrap_or("").to_string();
 
-        Ok((lat, lng))
+        Ok((lat, lng, addr))
     } else {
         println!("{}", json);
         if let Some(status) = json["status"].as_str() {
@@ -608,6 +616,6 @@ async fn fetch_single(client: &Client, addr: &str, key: &str) -> Result<(f64, f6
                 println!("\nMaxed Out API KEY\n");
             }
         }
-        Ok((f64::NAN, f64::NAN))
+        Ok((f64::NAN, f64::NAN, "".to_string()))
     }
 }
